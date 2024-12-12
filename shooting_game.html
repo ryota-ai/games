@@ -13,77 +13,153 @@
       display: block;
       background: black;
     }
+    #overlay, #startScreen, #timeUpScreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+      z-index: 10;
+    }
+    #overlay, #timeUpScreen {
+      visibility: hidden;
+    }
+    #startScreen {
+      visibility: visible;
+    }
+    #username {
+      margin: 10px 0;
+      padding: 10px;
+      font-size: 18px;
+    }
+    #submit, #startButton, #timeUpButton, #retryButton {
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    #ranking {
+      text-align: center;
+      margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
+<div id="startScreen">
+  <div id="ranking">
+    <h3>Ranking</h3>
+    <div id="rankingList"></div>
+  </div>
+  <button id="startButton">START</button>
+</div>
+<div id="timeUpScreen">
+  <p>TIME UP!</p>
+  <button id="timeUpButton">Continue</button>
+</div>
+<div id="overlay">
+  <p id="gameOverText"></p>
+  <input id="username" type="text" placeholder="Your name" style="display:none;">
+  <button id="submit" style="display:none;">Submit</button>
+  <p id="finalRanking" style="display:none;"></p>
+</div>
 <script>
   const canvas = document.getElementById("gameCanvas");
   const ctx = canvas.getContext("2d");
 
-  // サイズ設定
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  // スコア
   let score = 0;
-
-  // プレイヤーオブジェクト
-  const player = {
-    x: canvas.width / 2,
-    y: canvas.height - 50,
-    width: 50,
-    height: 20,
-    color: "cyan",
-    speed: 10,
-    bullets: []
-  };
-
-  // 敵オブジェクト
+  let timeLeft = 30; // タイムアップ時間
+  let gameActive = false;
+  let animationFrameId = null;
+  const player = { x: canvas.width / 2, y: canvas.height - 50, width: 50, height: 20, color: "cyan", speed: 10, bullets: 20 }; // 初期弾数を20に設定
+  const bullets = []; // 弾丸オブジェクトの配列
   const enemies = [];
+  const powerUps = []; // 弾補充用のオブジェクト
   const enemySize = 30;
-
-  // 弾丸オブジェクト
+  const powerUpSize = 20;
   const bulletSize = 5;
-
-  // キー入力管理
   const keys = {};
+  let spawnInterval, countdownInterval, powerUpInterval;
+  const ranking = JSON.parse(localStorage.getItem("ranking") || "[]");
 
-  // キーイベントリスナー
   document.addEventListener("keydown", (e) => keys[e.key] = true);
   document.addEventListener("keyup", (e) => keys[e.key] = false);
 
-  // 敵を生成
+  function resetGameState() {
+    player.x = canvas.width / 2;
+    player.bullets = 20; // 初期弾数
+    bullets.length = 0;
+    enemies.length = 0;
+    powerUps.length = 0;
+    score = 0;
+    timeLeft = 30; // タイムアップ時間
+    gameActive = false;
+    cancelAnimationFrame(animationFrameId);
+    clearInterval(spawnInterval);
+    clearInterval(countdownInterval);
+    clearInterval(powerUpInterval);
+  }
+
   function spawnEnemy() {
+    if (!gameActive) return;
     const x = Math.random() * (canvas.width - enemySize);
     enemies.push({ x, y: 0, width: enemySize, height: enemySize, color: "red", speed: 2 });
   }
 
-  // ゲームの更新
+  function spawnPowerUp() {
+    if (!gameActive) return;
+    const x = Math.random() * (canvas.width - powerUpSize);
+    powerUps.push({ x, y: canvas.height - player.height - powerUpSize, width: powerUpSize, height: powerUpSize, color: "yellow" });
+  }
+
   function update() {
-    // プレイヤー移動
+    if (!gameActive) return;
+
     if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
     if (keys["ArrowRight"] && player.x + player.width < canvas.width) player.x += player.speed;
 
-    // 弾丸を発射
-    if (keys[" "] && player.bullets.length < 10) {
-      player.bullets.push({ x: player.x + player.width / 2, y: player.y, size: bulletSize });
+    if (keys[" "] && player.bullets > 0) {
+      // 弾発射処理
+      bullets.push({ x: player.x + player.width / 2, y: player.y, size: bulletSize });
+      player.bullets--;
     }
 
-    // 弾丸の移動
-    player.bullets.forEach((bullet, index) => {
-      bullet.y -= 5;
-      if (bullet.y < 0) player.bullets.splice(index, 1);
+    // 弾丸の移動と再利用可能化
+    bullets.forEach((bullet, index) => {
+      bullet.y -= 5; // 弾丸を上に移動
+      if (bullet.y < 0) {
+        bullets.splice(index, 1); // 画面外の弾丸を削除
+        player.bullets++; // 弾丸を再利用可能に
+      }
     });
 
-    // 敵の移動
+    // 敵の移動と衝突判定
     enemies.forEach((enemy, index) => {
       enemy.y += enemy.speed;
       if (enemy.y > canvas.height) enemies.splice(index, 1);
+
+      // 敵とプレーヤーの衝突判定
+      if (
+        player.x < enemy.x + enemy.width &&
+        player.x + player.width > enemy.x &&
+        player.y < enemy.y + enemy.height &&
+        player.y + player.height > enemy.y
+      ) {
+        endGame(); // ゲーム終了
+      }
     });
 
     // 弾丸と敵の衝突判定
-    player.bullets.forEach((bullet, bIndex) => {
+    bullets.forEach((bullet, bIndex) => {
       enemies.forEach((enemy, eIndex) => {
         if (
           bullet.x < enemy.x + enemy.width &&
@@ -91,55 +167,167 @@
           bullet.y < enemy.y + enemy.height &&
           bullet.y + bullet.size > enemy.y
         ) {
-          // 衝突時に削除
-          player.bullets.splice(bIndex, 1);
-          enemies.splice(eIndex, 1);
-
-          // スコアを加算
-          score += 10;
+          bullets.splice(bIndex, 1); // 弾を削除
+          enemies.splice(eIndex, 1); // 敵を削除
+          score += 10; // スコア加算
         }
       });
     });
+
+    // パワーアップとの接触判定
+    powerUps.forEach((powerUp, index) => {
+      if (
+        player.x < powerUp.x + powerUp.width &&
+        player.x + player.width > powerUp.x &&
+        player.y < powerUp.y + powerUp.height &&
+        player.y + player.height > powerUp.y
+      ) {
+        player.bullets += 15; // 弾を10補充
+        powerUps.splice(index, 1); // パワーアップを削除
+      }
+    });
   }
 
-  // ゲームの描画
   function draw() {
+    if (!gameActive) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // プレイヤーを描画
+    // プレーヤー描画
     ctx.fillStyle = player.color;
     ctx.fillRect(player.x, player.y, player.width, player.height);
 
-    // 弾丸を描画
-    player.bullets.forEach(bullet => {
+    // 弾丸描画
+    bullets.forEach(bullet => {
       ctx.fillStyle = "yellow";
       ctx.fillRect(bullet.x, bullet.y, bullet.size, bullet.size);
     });
 
-    // 敵を描画
+    // 敵描画
     enemies.forEach(enemy => {
       ctx.fillStyle = enemy.color;
       ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
     });
 
-    // スコアを描画
+    // パワーアップ描画
+    powerUps.forEach(powerUp => {
+      ctx.fillStyle = powerUp.color;
+      ctx.fillRect(powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+    });
+
+    // 情報描画
     ctx.fillStyle = "white";
     ctx.font = "24px Arial";
     ctx.fillText(`Score: ${score}`, 20, 30);
+    ctx.fillText(`Bullets: ${player.bullets}`, 20, 60);
+    ctx.fillText(`Time: ${timeLeft}s`, 20, 90);
   }
 
-  // ゲームループ
+  function countdown() {
+    if (timeLeft > 0) {
+      timeLeft--;
+    } else {
+      endGame();
+    }
+  }
+
+  function endGame() {
+    gameActive = false;
+    clearInterval(spawnInterval);
+    clearInterval(countdownInterval);
+    clearInterval(powerUpInterval);
+    cancelAnimationFrame(animationFrameId);
+
+    document.getElementById("timeUpScreen").style.visibility = "hidden";
+    showScoreInput();
+  }
+
+  document.getElementById("timeUpButton").onclick = () => {
+    document.getElementById("timeUpScreen").style.visibility = "hidden";
+    showScoreInput();
+  };
+
+  function showScoreInput() {
+    const overlay = document.getElementById("overlay");
+    overlay.style.visibility = "visible";
+
+    const rank = ranking.findIndex(entry => score > entry.score || ranking.length < 5);
+
+    if (rank < 5 || ranking.length < 5) {
+      document.getElementById("gameOverText").textContent = "GAME OVER! You made the top 5!";
+      const usernameInput = document.getElementById("username");
+      const submitButton = document.getElementById("submit");
+      usernameInput.style.display = "block";
+      submitButton.style.display = "block";
+
+      submitButton.onclick = () => {
+        const name = usernameInput.value || "Anonymous";
+        ranking.splice(rank, 0, { score, name });
+        ranking.length = Math.min(5, ranking.length);
+        localStorage.setItem("ranking", JSON.stringify(ranking));
+        usernameInput.style.display = "none";
+        submitButton.style.display = "none";
+        showRanking();
+      };
+    } else {
+      document.getElementById("gameOverText").textContent = "GAME OVER! Better luck next time!";
+      showRanking();
+    }
+  }
+
+  function showRanking() {
+    const rankingText = document.getElementById("finalRanking");
+
+    // スコアを降順でソート
+    ranking.sort((a, b) => b.score - a.score);
+
+    rankingText.style.display = "block";
+    rankingText.innerHTML = `
+        <h3>Ranking</h3>
+        ${ranking.map((entry, i) => `<p>No${i + 1}: ${entry.name}: ${entry.score}</p>`).join("")}
+        <button id="retryButton" style="padding: 10px 20px; font-size: 18px; margin-top: 20px;">RETRY!</button>
+    `;
+
+    // RETRY! ボタンのクリックイベントを設定
+    const retryButton = document.getElementById("retryButton");
+    retryButton.onclick = () => {
+        document.getElementById("overlay").style.visibility = "hidden";
+        resetGameState();
+        gameActive = true;
+
+        spawnInterval = setInterval(spawnEnemy, 1000);
+        countdownInterval = setInterval(countdown, 1000);
+        powerUpInterval = setInterval(spawnPowerUp, Math.random() * 5000 + 5000); // 5～10秒の間隔で生成
+
+        animationFrameId = requestAnimationFrame(gameLoop);
+    };
+  }
+
+  function populateStartScreen() {
+    const rankingList = document.getElementById("rankingList");
+    rankingList.innerHTML = ranking.length
+      ? ranking.map((entry, i) => `<p>No${i + 1}: ${entry.name}: ${entry.score}</p>`).join("")
+      : "<p>No scores yet</p>";
+  }
+
+  document.getElementById("startButton").onclick = () => {
+    resetGameState();
+    document.getElementById("startScreen").style.visibility = "hidden";
+    gameActive = true;
+
+    spawnInterval = setInterval(spawnEnemy, 1000);
+    countdownInterval = setInterval(countdown, 1000);
+    powerUpInterval = setInterval(spawnPowerUp, Math.random() * 5000 + 5000); // 5～10秒の間隔で生成
+    animationFrameId = requestAnimationFrame(gameLoop);
+  };
+
   function gameLoop() {
+    if (!gameActive) return;
     update();
     draw();
-    requestAnimationFrame(gameLoop);
+    animationFrameId = requestAnimationFrame(gameLoop);
   }
 
-  // 敵生成ループ
-  setInterval(spawnEnemy, 1000);
-
-  // ゲーム開始
-  gameLoop();
+  populateStartScreen();
 </script>
 </body>
 </html>
