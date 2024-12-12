@@ -25,6 +25,9 @@
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
+  // スコア
+  let score = 0;
+
   // プレイヤーオブジェクト
   const player = {
     x: canvas.width / 2,
@@ -91,6 +94,9 @@
           // 衝突時に削除
           player.bullets.splice(bIndex, 1);
           enemies.splice(eIndex, 1);
+
+          // スコアを加算
+          score += 10;
         }
       });
     });
@@ -115,6 +121,11 @@
       ctx.fillStyle = enemy.color;
       ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
     });
+
+    // スコアを描画
+    ctx.fillStyle = "white";
+    ctx.font = "24px Arial";
+    ctx.fillText(`Score: ${score}`, 20, 30);
   }
 
   // ゲームループ
