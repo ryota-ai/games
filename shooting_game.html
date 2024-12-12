@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シューティングゲーム</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      background: black;
+    }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+
+  // サイズ設定
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  // プレイヤーオブジェクト
+  const player = {
+    x: canvas.width / 2,
+    y: canvas.height - 50,
+    width: 50,
+    height: 20,
+    color: "cyan",
+    speed: 10,
+    bullets: []
+  };
+
+  // 敵オブジェクト
+  const enemies = [];
+  const enemySize = 30;
+
+  // 弾丸オブジェクト
+  const bulletSize = 5;
+
+  // キー入力管理
+  const keys = {};
+
+  // キーイベントリスナー
+  document.addEventListener("keydown", (e) => keys[e.key] = true);
+  document.addEventListener("keyup", (e) => keys[e.key] = false);
+
+  // 敵を生成
+  function spawnEnemy() {
+    const x = Math.random() * (canvas.width - enemySize);
+    enemies.push({ x, y: 0, width: enemySize, height: enemySize, color: "red", speed: 2 });
+  }
+
+  // ゲームの更新
+  function update() {
+    // プレイヤー移動
+    if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
+    if (keys["ArrowRight"] && player.x + player.width < canvas.width) player.x += player.speed;
+
+    // 弾丸を発射
+    if (keys[" "] && player.bullets.length < 10) {
+      player.bullets.push({ x: player.x + player.width / 2, y: player.y, size: bulletSize });
+    }
+
+    // 弾丸の移動
+    player.bullets.forEach((bullet, index) => {
+      bullet.y -= 5;
+      if (bullet.y < 0) player.bullets.splice(index, 1);
+    });
+
+    // 敵の移動
+    enemies.forEach((enemy, index) => {
+      enemy.y += enemy.speed;
+      if (enemy.y > canvas.height) enemies.splice(index, 1);
+    });
+
+    // 弾丸と敵の衝突判定
+    player.bullets.forEach((bullet, bIndex) => {
+      enemies.forEach((enemy, eIndex) => {
+        if (
+          bullet.x < enemy.x + enemy.width &&
+          bullet.x + bullet.size > enemy.x &&
+          bullet.y < enemy.y + enemy.height &&
+          bullet.y + bullet.size > enemy.y
+        ) {
+          // 衝突時に削除
+          player.bullets.splice(bIndex, 1);
+          enemies.splice(eIndex, 1);
+        }
+      });
+    });
+  }
+
+  // ゲームの描画
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // プレイヤーを描画
+    ctx.fillStyle = player.color;
+    ctx.fillRect(player.x, player.y, player.width, player.height);
+
+    // 弾丸を描画
+    player.bullets.forEach(bullet => {
+      ctx.fillStyle = "yellow";
+      ctx.fillRect(bullet.x, bullet.y, bullet.size, bullet.size);
+    });
+
+    // 敵を描画
+    enemies.forEach(enemy => {
+      ctx.fillStyle = enemy.color;
+      ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+    });
+  }
+
+  // ゲームループ
+  function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // 敵生成ループ
+  setInterval(spawnEnemy, 1000);
+
+  // ゲーム開始
+  gameLoop();
+</script>
+</body>
+</html>
